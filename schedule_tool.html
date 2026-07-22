@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中框测试排期自动生成工具</title>
+<style>
+:root {
+  --bg:#f5f6fa; --card:#fff; --text:#2c3e50; --muted:#7f8c8d;
+  --primary:#2F5496; --plight:#d6e4f0; --success:#27ae60; --slight:#e2efda;
+  --warn:#e67e22; --wlight:#fff2cc; --danger:#e74c3c; --dlight:#fce4e4;
+  --border:#dcdde1; --radius:8px; --shadow:0 2px 8px rgba(0,0,0,.06);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:20px}
+.container{max-width:1200px;margin:0 auto}
+header{text-align:center;margin-bottom:20px}
+header h1{font-size:24px;color:var(--primary)}
+header p{color:var(--muted);font-size:13px;margin-top:4px}
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;margin-bottom:14px}
+.card-title{font-size:15px;font-weight:700;color:var(--primary);margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid var(--plight)}
+
+.form-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
+.form-group{display:flex;flex-direction:column;min-width:100px}
+.form-group label{font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600}
+.form-group input,.form-group select{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;transition:border .2s;font-family:inherit}
+.form-group input:focus,.form-group select:focus{border-color:var(--primary)}
+
+/* phase grid: one row per phase */
+#phaseInputs{display:flex;flex-direction:column;gap:8px}
+.phase-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;background:#fafbfc;border-radius:6px;border:1px solid var(--border)}
+.phase-row.st-row{border-left:3px solid var(--primary)}
+.phase-label{font-weight:700;font-size:13px;min-width:42px;color:var(--primary)}
+.st-row .phase-label{color:#c55a11}
+.field-label{font-size:11px;color:var(--muted);font-weight:600;min-width:auto}
+.phase-row input[type="date"]{padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:inherit;width:140px}
+.phase-row input[type="number"]{padding:6px;border:1px solid var(--border);border-radius:4px;font-size:12px;width:52px;text-align:center}
+.phase-row .days-unit{font-size:12px;color:var(--muted)}
+.mi-check{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);white-space:nowrap;cursor:pointer}
+.mi-check input{width:15px;height:15px}
+.mi-row{display:inline-flex;align-items:center;gap:4px}
+
+.btn-row{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+.btn{padding:10px 20px;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;gap:6px}
+.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:#1e3a6e}
+.btn-success{background:var(--success);color:#fff}.btn-success:hover{background:#219a52}
+.btn-outline{background:#fff;color:var(--primary);border:1px solid var(--primary)}.btn-outline:hover{background:var(--plight)}
+.btn-sm{padding:6px 12px;font-size:12px}
+
+.constraint-row{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px}
+.constraint-row input[type="checkbox"]{width:16px;height:16px}
+
+/* table */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--primary);color:#fff;padding:10px 8px;text-align:center;font-weight:600}
+td{padding:9px 8px;text-align:center;border-bottom:1px solid var(--border)}
+.lq-row{background:var(--plight)} .mi-row-bg{background:var(--slight)}
+.review-row{background:var(--wlight);font-weight:700}
+.error-row td{background:var(--dlight)!important;color:var(--danger)}
+td.phase-col{font-weight:700;text-align:left}
+.ok{color:var(--success)} .warn{color:var(--warn)} .err{color:var(--danger)}
+
+.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:6px;color:#fff;font-size:13px;z-index:999;animation:slideIn .3s}
+.toast.success{background:var(--success)} .toast.error{background:var(--danger)}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+#holiday-list{font-size:12px;color:var(--muted);line-height:1.8}
+#holiday-list code{background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:11px}
+@media(max-width:768px){.phase-row{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>📅 中框测试排期自动生成工具</h1>
+  <p>输入各阶段评审时间 → 自动倒排 LQ/MI 测试周期 · 避开周末与节假日 · 一键导出 Excel</p>
+</header>
+
+<!-- ====== 产品配置 ====== -->
+<div class="card">
+  <div class="card-title">📦 产品配置</div>
+  <div class="form-row">
+    <div class="form-group" style="min-width:220px">
+      <label>产品名称（可编辑）</label>
+      <input type="text" id="productName" placeholder="输入产品名称" value="">
+    </div>
+    <div class="form-group" style="min-width:200px">
+      <label>加载预置模板</label>
+      <select id="productSelect" onchange="loadProduct()">
+        <option value="custom">-- 自定义 --</option>
+        <option value="aluminum">铝合金包皮中框</option>
+        <option value="doubleMold">纳米注塑中框(双模激进)</option>
+        <option value="normal">纳米注塑中框(正常)</option>
+      </select>
+    </div>
+  </div>
+  <div class="constraint-row">
+    <input type="checkbox" id="chkConstraint" checked>
+    <label for="chkConstraint">下阶段 LQ 启动时间必须在上阶段评审日期之后</label>
+  </div>
+</div>
+
+<!-- ====== 阶段输入 ====== -->
+<div class="card">
+  <div class="card-title">📝 各阶段评审时间 & 测试周期</div>
+  <div id="phaseInputs"></div>
+</div>
+
+<!-- ====== 按钮 ====== -->
+<div class="btn-row">
+  <button class="btn btn-primary" onclick="calculate()">🔄 计算排期</button>
+  <button class="btn btn-success" onclick="exportExcel()">📥 导出 Excel</button>
+  <button class="btn btn-outline" onclick="resetForm()">🗑 重置</button>
+</div>
+
+<!-- ====== 结果 ====== -->
+<div class="card" id="resultCard" style="display:none">
+  <div class="card-title">📊 排期结果 <span id="resultSummary" style="font-weight:400;font-size:12px;color:var(--muted)"></span></div>
+  <div class="tbl-wrap">
+    <table id="resultTable"><thead><tr><th>阶段</th><th>测试端</th><th>开始时间</th><th>周几</th><th>结束时间</th><th>周几</th><th>天数</th><th>校验</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<!-- ====== 节假日 ====== -->
+<div class="card">
+  <div class="card-title">📌 已配置节假日（<a href="javascript:void(0)" onclick="toggleHolidayEdit()" style="color:var(--primary)">编辑</a>）</div>
+  <div id="holiday-list"></div>
+  <div id="holidayEdit" style="display:none;margin-top:8px">
+    <textarea id="holidayTextarea" rows="4" style="width:100%;font-family:monospace;font-size:12px;padding:8px;border:1px solid var(--border);border-radius:4px"></textarea>
+    <button class="btn btn-sm btn-outline" onclick="saveHolidays()" style="margin-top:6px">💾 保存</button>
+  </div>
+</div>
+
+</div>
+
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script>
+// ============================================================
+//  节假日
+// ============================================================
+const DEFAULT_HOLIDAYS = [
+  '2027-01-01',
+  '2027-02-05','2027-02-06','2027-02-07','2027-02-08','2027-02-09','2027-02-10','2027-02-11',
+  '2027-04-05',
+  '2027-05-01','2027-05-02','2027-05-03','2027-05-04','2027-05-05',
+];
+let holidaySet = new Set(DEFAULT_HOLIDAYS);
+
+function renderHolidays(){const a=[...holidaySet].sort();document.getElementById('holiday-list').innerHTML=a.length===0?'<span style="color:var(--muted)">未配置</span>':a.map(d=>{const dt=parseDate(d);return`<code>${d} 周${'日一二三四五六'[dt.getDay()]}</code>`}).join(' &nbsp;·&nbsp;')}
+function toggleHolidayEdit(){const e=document.getElementById('holidayEdit'),t=document.getElementById('holidayTextarea');if(e.style.display==='none'){t.value=[...holidaySet].sort().join('\n');e.style.display='block'}else e.style.display='none'}
+function saveHolidays(){const t=document.getElementById('holidayTextarea'),ls=t.value.split('\n').map(s=>s.trim()).filter(s=>/^\d{4}-\d{2}-\d{2}$/.test(s));holidaySet=new Set(ls);document.getElementById('holidayEdit').style.display='none';renderHolidays();toast('节假日已更新','success')}
+
+// ============================================================
+//  日期工具
+// ============================================================
+function parseDate(s){const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)}
+function fmtDate(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return`${y}-${m}-${day}`}
+function fmtCN(d){return fmtDate(d).replace(/-/g,'/')}
+function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r}
+function isWork(d){return d.getDay()!==0&&d.getDay()!==6&&!holidaySet.has(fmtDate(d))}
+function wdCN(d){return'日一二三四五六'[d.getDay()]}
+function prevWork(a){let d=addDays(a,-1);while(!isWork(d))d=addDays(d,-1);return d}
+function nextWork(a){let d=new Date(a);while(!isWork(d))d=addDays(d,1);return d}
+function cntBack(ed,n){let d=new Date(ed),f=0;while(f<n){if(isWork(d))f++;if(f<n)d=addDays(d,-1)}return d}
+function wdCnt(a,b){let c=0,d=new Date(a),e=new Date(b);while(d<=e){if(isWork(d))c++;d=addDays(d,1)}return c}
+
+// ============================================================
+//  阶段定义
+// ============================================================
+const PHASES = [
+  {id:'CP0',name:'CP0',lq:14,mi:0,hasMI:false},
+  {id:'CP1',name:'CP1',lq:14,mi:0,hasMI:false},
+  {id:'CP2',name:'CP2',lq:14,mi:0,hasMI:false},
+  {id:'ST1',name:'ST1',lq:12,mi:7,hasMI:true},
+  {id:'ST2',name:'ST2',lq:12,mi:7,hasMI:true},
+  {id:'ST3',name:'ST3',lq:12,mi:7,hasMI:true},
+];
+
+function buildPhaseInputs(){
+  const c=document.getElementById('phaseInputs');
+  c.innerHTML=PHASES.map(p=>{
+    const isST=p.name.includes('ST');
+    return`<div class="phase-row${isST?' st-row':''}">
+      <span class="phase-label">${p.name}</span>
+      <span class="field-label">评审</span>
+      <input type="date" id="review_${p.id}" title="${p.name} 评审时间">
+      <span class="field-label">LQ</span>
+      <input type="number" id="lq_${p.id}" value="${p.lq}" min="1" max="60" title="LQ测试工作日">
+      <span class="days-unit">天</span>
+      <label class="mi-check">
+        <input type="checkbox" id="mi_${p.id}" ${p.hasMI?'checked':''} onchange="toggleMI('${p.id}')">
+        MI测试
+      </label>
+      <span class="mi-row" id="miFields_${p.id}" style="display:${p.hasMI?'':'none'}">
+        <span class="field-label">MI</span>
+        <input type="number" id="miDays_${p.id}" value="${p.mi}" min="1" max="60" title="MI测试工作日">
+        <span class="days-unit">天</span>
+      </span>
+    </div>`;
+  }).join('');
+}
+
+function toggleMI(id){
+  const chk=document.getElementById('mi_'+id);
+  const fld=document.getElementById('miFields_'+id);
+  fld.style.display=chk.checked?'':'none';
+}
+
+function getPhaseInputs(){
+  const r=[];
+  for(const p of PHASES){
+    const dv=document.getElementById('review_'+p.id).value;
+    if(!dv) continue;
+    const hasMI=document.getElementById('mi_'+p.id).checked;
+    r.push({
+      id:p.id, name:p.name, review:dv,
+      lqDays:parseInt(document.getElementById('lq_'+p.id).value)||14,
+      miDays:hasMI?(parseInt(document.getElementById('miDays_'+p.id).value)||7):0,
+      hasMI:hasMI,
+    });
+  }
+  return r;
+}
+
+// ============================================================
+//  计算
+// ============================================================
+function calculate(){
+  const phases=getPhaseInputs();
+  if(!phases.length){toast('请至少填写一个阶段的评审时间','error');return}
+  const useC=document.getElementById('chkConstraint').checked;
+  const results=[]; let prevR=null;
+
+  for(const ph of phases){
+    const R=parseDate(ph.review);
+    let miE=null,miS=null,lqE,lqS;
+    if(ph.miDays>0){miE=prevWork(R);miS=cntBack(miE,ph.miDays);lqE=prevWork(miS);lqS=cntBack(lqE,ph.lqDays)}
+    else{lqE=prevWork(R);lqS=cntBack(lqE,ph.lqDays)}
+
+    let st='ok',issue='';
+    const need=ph.lqDays+ph.miDays;
+    if(useC&&prevR){const ws=nextWork(addDays(prevR,1)),we=prevWork(R),wd=wdCnt(ws,we);
+      if(wd<need){st='error';issue=`窗口仅${wd}工作日，需${need}天`}
+      else if(lqS<ws){st='warn';issue=`LQ起${fmtCN(lqS)}早于窗口${fmtCN(ws)}`}}
+
+    results.push({phase:ph.name,review:R,hasMI:ph.miDays>0,lqS,lqE,lqD:ph.lqDays,miS,miE,miD:ph.miDays,status:st,issue});
+    prevR=R;
+  }
+  renderResults(results);
+}
+
+function renderResults(results){
+  const card=document.getElementById('resultCard'),tb=document.getElementById('resultTable').querySelector('tbody');
+  card.style.display='block'; tb.innerHTML='';
+  const ok=results.filter(r=>r.status==='ok').length;
+  document.getElementById('resultSummary').textContent=`(${ok}/${results.length} 通过校验)`;
+  if(!results.length) return;
+
+  for(const r of results){
+    const lqTr=document.createElement('tr'); lqTr.className=r.status==='error'?'error-row':'lq-row';
+    lqTr.innerHTML=`<td class="phase-col" rowspan="${r.hasMI?3:2}">${r.phase}</td><td>LQ测试</td><td>${fmtCN(r.lqS)}</td><td>周${wdCN(r.lqS)}</td><td>${fmtCN(r.lqE)}</td><td>周${wdCN(r.lqE)}</td><td>${r.lqD}天</td><td rowspan="${r.hasMI?3:2}" class="${r.status==='ok'?'ok':r.status==='warn'?'warn':'err'}">${r.status==='ok'?'✓':(r.status==='warn'?'⚠':'❌')+' '+r.issue}</td>`;
+    tb.appendChild(lqTr);
+    if(r.hasMI){const miTr=document.createElement('tr');miTr.className=r.status==='error'?'error-row':'mi-row-bg';miTr.innerHTML=`<td>MI测试</td><td>${fmtCN(r.miS)}</td><td>周${wdCN(r.miS)}</td><td>${fmtCN(r.miE)}</td><td>周${wdCN(r.miE)}</td><td>${r.miD}天</td>`;tb.appendChild(miTr)}
+    const rvTr=document.createElement('tr');rvTr.className=r.status==='error'?'error-row':'review-row';rvTr.innerHTML=`<td>评审</td><td>${fmtCN(r.review)}</td><td>周${wdCN(r.review)}</td><td></td><td></td><td></td>`;tb.appendChild(rvTr);
+  }
+}
+
+// ============================================================
+//  Excel
+// ============================================================
+function exportExcel(){
+  const phases=getPhaseInputs(); if(!phases.length){toast('请先填写并计算排期','error');return}
+  const useC=document.getElementById('chkConstraint').checked;
+  const results=[]; let prevR=null;
+  for(const ph of phases){const R=parseDate(ph.review);let miE=null,miS=null,lqE,lqS;if(ph.miDays>0){miE=prevWork(R);miS=cntBack(miE,ph.miDays);lqE=prevWork(miS);lqS=cntBack(lqE,ph.lqDays)}else{lqE=prevWork(R);lqS=cntBack(lqE,ph.lqDays)}let st='ok',issue='';const need=ph.lqDays+ph.miDays;if(useC&&prevR){const ws=nextWork(addDays(prevR,1)),we=prevWork(R),wd=wdCnt(ws,we);if(wd<need){st='error';issue=`窗口仅${wd}工作日`}else if(lqS<ws){st='warn';issue=`LQ起早于窗口`}}results.push({phase:ph.name,review:R,hasMI:ph.miDays>0,lqS,lqE,lqD:ph.lqDays,miS,miE,miD:ph.miDays,status:st,issue});prevR=R}
+
+  const name=document.getElementById('productName').value||'测试排期';
+  const rows=[['阶段','测试端','开始时间','周几','结束时间','周几','天数','校验']];
+  for(const r of results){rows.push([r.phase,'LQ测试',fmtCN(r.lqS),'周'+wdCN(r.lqS),fmtCN(r.lqE),'周'+wdCN(r.lqE),r.lqD+'天',r.status==='ok'?'✓':r.issue]);if(r.hasMI)rows.push(['','MI测试',fmtCN(r.miS),'周'+wdCN(r.miS),fmtCN(r.miE),'周'+wdCN(r.miE),r.miD+'天','']);rows.push(['','评审',fmtCN(r.review),'周'+wdCN(r.review),'','','',''])}
+  const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:8},{wch:8},{wch:14},{wch:6},{wch:14},{wch:6},{wch:8},{wch:28}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'测试排期');
+  XLSX.writeFile(wb,(name.replace(/[\\\/:*?"<>|]/g,'_'))+'_排期.xlsx');
+  toast('Excel 已导出','success');
+}
+
+// ============================================================
+//  预置数据
+// ============================================================
+const PRODUCT_DATA = {
+  aluminum:{name:'铝合金包皮中框',phases:{CP0:{r:'2026-11-16',lq:13,mi:0,miOn:false},CP1:{r:'',lq:13,mi:0,miOn:false},CP2:{r:'2026-12-04',lq:13,mi:0,miOn:false},ST1:{r:'2027-01-04',lq:12,mi:7,miOn:true},ST2:{r:'2027-02-03',lq:12,mi:7,miOn:true},ST3:{r:'2027-03-10',lq:12,mi:7,miOn:true}}},
+  doubleMold:{name:'纳米注塑中框(双模激进)',phases:{CP0:{r:'2026-11-16',lq:14,mi:0,miOn:false},CP1:{r:'',lq:14,mi:0,miOn:false},CP2:{r:'2026-12-09',lq:14,mi:0,miOn:false},ST1:{r:'2027-01-20',lq:12,mi:7,miOn:true},ST2:{r:'2027-03-01',lq:12,mi:7,miOn:true},ST3:{r:'2027-04-05',lq:12,mi:7,miOn:true}}},
+  normal:{name:'纳米注塑中框(正常)',phases:{CP0:{r:'2026-11-11',lq:14,mi:0,miOn:false},CP1:{r:'',lq:14,mi:0,miOn:false},CP2:{r:'2026-12-11',lq:14,mi:0,miOn:false},ST1:{r:'2027-01-28',lq:12,mi:7,miOn:true},ST2:{r:'2027-03-23',lq:12,mi:7,miOn:true},ST3:{r:'2027-04-30',lq:12,mi:7,miOn:true}}},
+};
+
+function loadProduct(){
+  const sel=document.getElementById('productSelect').value;
+  if(sel==='custom') return;
+  const d=PRODUCT_DATA[sel]; if(!d) return;
+  document.getElementById('productName').value=d.name;
+  for(const p of PHASES){
+    const pd=d.phases[p.id]; if(!pd) continue;
+    document.getElementById('review_'+p.id).value=pd.r||'';
+    document.getElementById('lq_'+p.id).value=pd.lq;
+    document.getElementById('mi_'+p.id).checked=pd.miOn;
+    document.getElementById('miDays_'+p.id).value=pd.mi||0;
+    document.getElementById('miFields_'+p.id).style.display=pd.miOn?'':'none';
+  }
+  toast('已加载：'+d.name,'success');
+}
+
+function resetForm(){
+  document.getElementById('productSelect').value='custom';
+  document.getElementById('productName').value='';
+  document.getElementById('chkConstraint').checked=true;
+  for(const p of PHASES){
+    document.getElementById('review_'+p.id).value='';
+    document.getElementById('lq_'+p.id).value=p.lq;
+    document.getElementById('mi_'+p.id).checked=p.hasMI;
+    document.getElementById('miDays_'+p.id).value=p.mi;
+    document.getElementById('miFields_'+p.id).style.display=p.hasMI?'':'none';
+  }
+  try{document.getElementById('resultCard').style.display='none'}catch(e){}
+  toast('已重置','success');
+}
+
+function toast(m,t){const e=document.createElement('div');e.className='toast '+t;e.textContent=m;document.body.appendChild(e);setTimeout(()=>e.remove(),2500)}
+
+// init
+buildPhaseInputs();renderHolidays();
+</script>
+</body>
+</html>
