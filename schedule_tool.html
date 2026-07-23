@@ -68,6 +68,16 @@ td.phase-col{font-weight:700;text-align:left}
 #holiday-list{font-size:12px;color:var(--muted);line-height:1.8}
 #holiday-list code{background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:11px}
 @media(max-width:768px){.phase-row{flex-direction:column;align-items:flex-start}}
+
+.delay-positive{color:var(--danger);font-weight:700}
+.delay-negative{color:var(--success)}
+.delay-none{color:var(--muted)}
+.hw-batch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.hw-batch-item{display:flex;align-items:center;gap:6px;padding:8px 10px;background:#fafbfc;border-radius:6px;border:1px solid var(--border)}
+.hw-batch-item .hw-label{font-weight:700;font-size:12px;min-width:36px}
+.hw-batch-item .hw-compare{font-size:11px;color:var(--muted);white-space:nowrap}
+.hw-batch-item input[type="date"]{flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:inherit;width:140px}
+
 </style>
 </head>
 <body>
@@ -109,6 +119,14 @@ td.phase-col{font-weight:700;text-align:left}
 </div>
 
 <!-- ====== 按钮 ====== -->
+
+<!-- ====== 硬件批次时间 ====== -->
+<div class="card">
+  <div class="card-title">🔧 硬件批次时间 & 延迟比对</div>
+  <div id="hwBatchInputs" class="hw-batch-grid"></div>
+  <div style="font-size:12px;color:var(--muted);margin-top:6px">比对规则：硬件批次时间 vs 对应阶段 LQ 开始时间（自然日差，不去除周末/节假日）；正数 = delay</div>
+</div>
+
 <div class="btn-row">
   <button class="btn btn-primary" onclick="calculate()">🔄 计算排期</button>
   <button class="btn btn-success" onclick="exportExcel()">📥 导出 Excel</button>
@@ -119,7 +137,7 @@ td.phase-col{font-weight:700;text-align:left}
 <div class="card" id="resultCard" style="display:none">
   <div class="card-title">📊 排期结果 <span id="resultSummary" style="font-weight:400;font-size:12px;color:var(--muted)"></span></div>
   <div class="tbl-wrap">
-    <table id="resultTable"><thead><tr><th>阶段</th><th>测试端</th><th>开始时间</th><th>周几</th><th>结束时间</th><th>周几</th><th>天数</th><th>校验</th></tr></thead><tbody></tbody></table>
+    <table id="resultTable"><thead><tr><th>阶段</th><th>测试端</th><th>开始时间</th><th>周几</th><th>结束时间</th><th>周几</th><th>天数</th><th>硬件比对</th><th>校验</th></tr></thead><tbody></tbody></table>
   </div>
 </div>
 
@@ -202,6 +220,41 @@ function buildPhaseInputs(){
   }).join('');
 }
 
+
+// ============================================================
+//  硬件批次
+// ============================================================
+const HW_BATCHES = [
+  {id:'P0',   compare:'CP1', label:'P0'},
+  {id:'P0.1', compare:'CP2', label:'P0.1'},
+  {id:'P1.0', compare:'ST1', label:'P1.0'},
+  {id:'P1.1', compare:'ST2', label:'P1.1'},
+  {id:'P2',   compare:'ST3', label:'P2'},
+];
+
+function buildHWBatchInputs(){
+  const c=document.getElementById('hwBatchInputs');
+  c.innerHTML=HW_BATCHES.map(h=>`
+    <div class="hw-batch-item">
+      <span class="hw-label">${h.label}</span>
+      <input type="date" id="hw_${h.id}" title="${h.label} 硬件批次">
+      <span class="hw-compare">→ ${h.compare}</span>
+    </div>
+  `).join('');
+}
+
+function getHWData(){
+  return HW_BATCHES.map(h=>({
+    id:h.id, label:h.label, compare:h.compare,
+    date:document.getElementById('hw_'+h.id).value||null
+  }));
+}
+
+function calcDelay(hwDateStr, lqStartDate){
+  if(!hwDateStr||!lqStartDate) return null;
+  return Math.round((parseDate(hwDateStr)-lqStartDate)/86400000);
+}
+
 function toggleMI(id){
   const chk=document.getElementById('mi_'+id);
   const fld=document.getElementById('miFields_'+id);
@@ -248,6 +301,15 @@ function calculate(){
     results.push({phase:ph.name,review:R,hasMI:ph.miDays>0,lqS,lqE,lqD:ph.lqDays,miS,miE,miD:ph.miDays,status:st,issue});
     prevR=R;
   }
+
+  // 计算硬件批次延迟
+  const hwData=getHWData();
+  for(const r of results){
+    const hw=hwData.find(h=>h.compare===r.phase);
+    if(!hw||!hw.date) continue;
+    r.hwLabel=hw.label;
+    r.delayDays=calcDelay(hw.date, r.lqS);
+  }
   renderResults(results);
 }
 
@@ -260,7 +322,12 @@ function renderResults(results){
 
   for(const r of results){
     const lqTr=document.createElement('tr'); lqTr.className=r.status==='error'?'error-row':'lq-row';
-    lqTr.innerHTML=`<td class="phase-col" rowspan="${r.hasMI?3:2}">${r.phase}</td><td>LQ测试</td><td>${fmtCN(r.lqS)}</td><td>周${wdCN(r.lqS)}</td><td>${fmtCN(r.lqE)}</td><td>周${wdCN(r.lqE)}</td><td>${r.lqD}天</td><td rowspan="${r.hasMI?3:2}" class="${r.status==='ok'?'ok':r.status==='warn'?'warn':'err'}">${r.status==='ok'?'✓':(r.status==='warn'?'⚠':'❌')+' '+r.issue}</td>`;
+    let delayHTML='<td class="delay-none">—</td>';const rs=r.hasMI?3:2;
+  if(r.hwLabel&&r.delayDays!=null){
+    if(r.delayDays>0) delayHTML=`<td class="delay-positive">${r.hwLabel} delay ${r.delayDays}天</td>`;
+    else delayHTML=`<td class="delay-negative">${r.hwLabel} 提前 ${-r.delayDays}天</td>`;
+  }
+lqTr.innerHTML=`<td class="phase-col" rowspan="${r.hasMI?3:2}">${r.phase}</td><td>LQ测试</td><td>${fmtCN(r.lqS)}</td><td>周${wdCN(r.lqS)}</td><td>${fmtCN(r.lqE)}</td><td>周${wdCN(r.lqE)}</td><td>${r.lqD}天</td>${delayHTML}<td rowspan="${r.hasMI?3:2}" class="${r.status==='ok'?'ok':r.status==='warn'?'warn':'err'}">${r.status==='ok'?'✓':(r.status==='warn'?'⚠':'❌')+' '+r.issue}</td>`;
     tb.appendChild(lqTr);
     if(r.hasMI){const miTr=document.createElement('tr');miTr.className=r.status==='error'?'error-row':'mi-row-bg';miTr.innerHTML=`<td>MI测试</td><td>${fmtCN(r.miS)}</td><td>周${wdCN(r.miS)}</td><td>${fmtCN(r.miE)}</td><td>周${wdCN(r.miE)}</td><td>${r.miD}天</td>`;tb.appendChild(miTr)}
     const rvTr=document.createElement('tr');rvTr.className=r.status==='error'?'error-row':'review-row';rvTr.innerHTML=`<td>评审</td><td>${fmtCN(r.review)}</td><td>周${wdCN(r.review)}</td><td></td><td></td><td></td>`;tb.appendChild(rvTr);
@@ -277,9 +344,10 @@ function exportExcel(){
   for(const ph of phases){const R=parseDate(ph.review);let miE=null,miS=null,lqE,lqS;if(ph.miDays>0){miE=prevWork(R);miS=cntBack(miE,ph.miDays);lqE=prevWork(miS);lqS=cntBack(lqE,ph.lqDays)}else{lqE=prevWork(R);lqS=cntBack(lqE,ph.lqDays)}let st='ok',issue='';const need=ph.lqDays+ph.miDays;if(useC&&prevR){const ws=nextWork(addDays(prevR,1)),we=prevWork(R),wd=wdCnt(ws,we);if(wd<need){st='error';issue=`窗口仅${wd}工作日`}else if(lqS<ws){st='warn';issue=`LQ起早于窗口`}}results.push({phase:ph.name,review:R,hasMI:ph.miDays>0,lqS,lqE,lqD:ph.lqDays,miS,miE,miD:ph.miDays,status:st,issue});prevR=R}
 
   const name=document.getElementById('productName').value||'测试排期';
-  const rows=[['阶段','测试端','开始时间','周几','结束时间','周几','天数','校验']];
-  for(const r of results){rows.push([r.phase,'LQ测试',fmtCN(r.lqS),'周'+wdCN(r.lqS),fmtCN(r.lqE),'周'+wdCN(r.lqE),r.lqD+'天',r.status==='ok'?'✓':r.issue]);if(r.hasMI)rows.push(['','MI测试',fmtCN(r.miS),'周'+wdCN(r.miS),fmtCN(r.miE),'周'+wdCN(r.miE),r.miD+'天','']);rows.push(['','评审',fmtCN(r.review),'周'+wdCN(r.review),'','','',''])}
-  const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:8},{wch:8},{wch:14},{wch:6},{wch:14},{wch:6},{wch:8},{wch:28}];
+  const rows=[['阶段','测试端','开始时间','周几','结束时间','周几','天数','硬件比对','校验']];
+  for(const r of results){let delayStr='';if(r.hwLabel&&r.delayDays!=null)delayStr=r.delayDays>0?r.hwLabel+' delay '+r.delayDays+'天':r.hwLabel+' 提前 '+(-r.delayDays)+'天';
+rows.push([r.phase,'LQ测试',fmtCN(r.lqS),'周'+wdCN(r.lqS),fmtCN(r.lqE),'周'+wdCN(r.lqE),r.lqD+'天',delayStr,r.status==='ok'?'✓':r.issue]);if(r.hasMI)rows.push(['','MI测试',fmtCN(r.miS),'周'+wdCN(r.miS),fmtCN(r.miE),'周'+wdCN(r.miE),r.miD+'天','','']);rows.push(['','评审',fmtCN(r.review),'周'+wdCN(r.review),'','','',''])}
+  const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:8},{wch:8},{wch:14},{wch:6},{wch:14},{wch:6},{wch:8},{wch:20},{wch:28}];
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'测试排期');
   XLSX.writeFile(wb,(name.replace(/[\\\/:*?"<>|]/g,'_'))+'_排期.xlsx');
   toast('Excel 已导出','success');
@@ -321,14 +389,14 @@ function resetForm(){
     document.getElementById('miDays_'+p.id).value=p.mi;
     document.getElementById('miFields_'+p.id).style.display=p.hasMI?'':'none';
   }
-  try{document.getElementById('resultCard').style.display='none'}catch(e){}
+  for(const h of HW_BATCHES){try{document.getElementById('hw_'+h.id).value=''}catch(e){}};try{document.getElementById('resultCard').style.display='none'}catch(e){}
   toast('已重置','success');
 }
 
 function toast(m,t){const e=document.createElement('div');e.className='toast '+t;e.textContent=m;document.body.appendChild(e);setTimeout(()=>e.remove(),2500)}
 
 // init
-buildPhaseInputs();renderHolidays();
+buildPhaseInputs();buildHWBatchInputs();renderHolidays();
 </script>
 </body>
 </html>
